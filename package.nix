@@ -2,7 +2,7 @@
 
 rustPlatform.buildRustPackage {
   pname = "niri-whichkey";
-  version = "0.1.0";
+  version = "0.1.2";
 
   src = lib.cleanSourceWith {
     src = ./.;

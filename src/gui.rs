@@ -123,7 +123,13 @@ impl OutputHandler for GuiApp {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        self.create_surface_for_output(output, qh);
+        if let Some(surf) = self.output_surfaces.iter_mut().find(|s| s.output == output) {
+            if let Some(info) = self.output_state.info(&output) {
+                surf.name = info.name;
+            }
+        } else {
+            self.create_surface_for_output(output, qh);
+        }
     }
 
     fn update_output(
@@ -293,7 +299,10 @@ pub fn run_gui(config: AppConfig, channel_source: Channel<GuiMessage>) {
 
 impl GuiApp {
     fn create_surface_for_output(&mut self, output: wl_output::WlOutput, qh: &QueueHandle<Self>) {
-        if self.output_surfaces.iter().any(|s| s.output == output) {
+        if let Some(surf) = self.output_surfaces.iter_mut().find(|s| s.output == output) {
+            if surf.name.is_none() {
+                surf.name = self.output_state.info(&output).and_then(|info| info.name);
+            }
             return;
         }
 
@@ -351,8 +360,14 @@ impl GuiApp {
             GuiMessage::FocusedOutput(name) => {
                 let changed = self.focused_output_name.as_deref() != Some(&name);
                 self.focused_output_name = Some(name);
-                if changed && self.is_visible {
-                    self.draw();
+                if changed {
+                    println!(
+                        "[niri-whichkey] Active monitor switched to: {:?}",
+                        self.focused_output_name
+                    );
+                    if self.is_visible {
+                        self.draw();
+                    }
                 }
             }
             GuiMessage::Show(chord) => {
@@ -420,6 +435,15 @@ impl GuiApp {
         let height = calculated_height.max(80);
         let stride = width as i32 * 4;
 
+        // Ensure any uninitialized output names are refreshed from output_state
+        for s in &mut self.output_surfaces {
+            if s.name.is_none() {
+                if let Some(info) = self.output_state.info(&s.output) {
+                    s.name = info.name;
+                }
+            }
+        }
+
         let target_idx = if let Some(ref focused_name) = self.focused_output_name {
             self.output_surfaces
                 .iter()
@@ -428,6 +452,13 @@ impl GuiApp {
         } else {
             0
         };
+
+        if let Some(surf) = self.output_surfaces.get(target_idx) {
+            println!(
+                "[niri-whichkey] Displaying HUD on output: {:?} (focused: {:?})",
+                surf.name, self.focused_output_name
+            );
+        }
 
         for i in 0..self.output_surfaces.len() {
             if i == target_idx {

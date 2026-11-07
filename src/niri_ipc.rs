@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
@@ -22,33 +23,14 @@ impl NiriIpcWatcher {
         thread::spawn(move || {
             loop {
                 if let Some(sock_path) = find_niri_socket() {
+                    let mut workspace_outputs: HashMap<u64, String> = HashMap::new();
+                    let mut current_focused: Option<String> = None;
+
                     // 1. Initial query to get currently focused output
-                    if let Ok(mut query_stream) = UnixStream::connect(&sock_path) {
-                        let req = "{\"FocusedOutput\": null}\n";
-                        if query_stream.write_all(req.as_bytes()).is_ok()
-                            && query_stream.flush().is_ok()
-                        {
-                            let mut line = String::new();
-                            let mut reader = BufReader::new(query_stream);
-                            if reader.read_line(&mut line).is_ok() {
-                                if let Ok(val) = serde_json::from_str::<Value>(&line) {
-                                    if let Some(name) = val
-                                        .get("Ok")
-                                        .and_then(|ok| ok.get("FocusedOutput"))
-                                        .and_then(|fo| fo.get("name"))
-                                        .and_then(|n| n.as_str())
-                                    {
-                                        println!(
-                                            "[niri-whichkey] Initially focused output: {}",
-                                            name
-                                        );
-                                        let _ = self
-                                            .tx
-                                            .send(GuiMessage::FocusedOutput(name.to_string()));
-                                    }
-                                }
-                            }
-                        }
+                    if let Some(name) = query_focused_output(&sock_path) {
+                        println!("[niri-whichkey] Initially focused output: {}", name);
+                        current_focused = Some(name.clone());
+                        let _ = self.tx.send(GuiMessage::FocusedOutput(name));
                     }
 
                     // 2. Start continuous EventStream
@@ -64,22 +46,29 @@ impl NiriIpcWatcher {
                                 match line {
                                     Ok(l) => {
                                         if let Ok(val) = serde_json::from_str::<Value>(&l) {
-                                            // Handle workspace & output focus changes
+                                            // 1. WorkspacesChanged: update workspace_id -> output mapping
                                             if let Some(workspaces) = val
                                                 .get("WorkspacesChanged")
                                                 .and_then(|w| w.get("workspaces"))
                                                 .and_then(|w| w.as_array())
                                             {
                                                 for ws in workspaces {
-                                                    let is_focused = ws
-                                                        .get("is_focused")
-                                                        .and_then(|f| f.as_bool())
-                                                        .unwrap_or(false);
-                                                    if is_focused {
-                                                        if let Some(output) = ws
-                                                            .get("output")
-                                                            .and_then(|o| o.as_str())
+                                                    if let (Some(id), Some(output)) = (
+                                                        ws.get("id").and_then(|i| i.as_u64()),
+                                                        ws.get("output").and_then(|o| o.as_str()),
+                                                    ) {
+                                                        workspace_outputs
+                                                            .insert(id, output.to_string());
+                                                        let is_focused = ws
+                                                            .get("is_focused")
+                                                            .and_then(|f| f.as_bool())
+                                                            .unwrap_or(false);
+                                                        if is_focused
+                                                            && current_focused.as_deref()
+                                                                != Some(output)
                                                         {
+                                                            current_focused =
+                                                                Some(output.to_string());
                                                             let _ = self.tx.send(
                                                                 GuiMessage::FocusedOutput(
                                                                     output.to_string(),
@@ -88,7 +77,52 @@ impl NiriIpcWatcher {
                                                         }
                                                     }
                                                 }
-                                            } else if val.get("ConfigLoaded").is_some() {
+                                            }
+                                            // 2. WorkspaceActivated: focus moved to another workspace/monitor
+                                            else if let Some(activated) =
+                                                val.get("WorkspaceActivated")
+                                            {
+                                                let is_focused = activated
+                                                    .get("focused")
+                                                    .and_then(|f| f.as_bool())
+                                                    .unwrap_or(false);
+                                                if is_focused {
+                                                    if let Some(ws_id) =
+                                                        activated.get("id").and_then(|i| i.as_u64())
+                                                    {
+                                                        let target_output = workspace_outputs
+                                                            .get(&ws_id)
+                                                            .cloned()
+                                                            .or_else(|| {
+                                                                query_focused_output(&sock_path)
+                                                            });
+                                                        if let Some(out) = target_output {
+                                                            if current_focused.as_deref()
+                                                                != Some(&out)
+                                                            {
+                                                                current_focused = Some(out.clone());
+                                                                let _ = self.tx.send(
+                                                                    GuiMessage::FocusedOutput(out),
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // 3. WindowFocusChanged: window focus changed across monitors
+                                            else if val.get("WindowFocusChanged").is_some() {
+                                                if let Some(out) = query_focused_output(&sock_path)
+                                                {
+                                                    if current_focused.as_deref() != Some(&out) {
+                                                        current_focused = Some(out.clone());
+                                                        let _ = self
+                                                            .tx
+                                                            .send(GuiMessage::FocusedOutput(out));
+                                                    }
+                                                }
+                                            }
+                                            // 4. ConfigLoaded: Niri config reloaded
+                                            else if val.get("ConfigLoaded").is_some() {
                                                 println!("[niri-whichkey] Niri config reload detected. Refreshing keybindings...");
                                                 let _ = self.tx.send(GuiMessage::ReloadConfig);
                                             }
@@ -104,6 +138,22 @@ impl NiriIpcWatcher {
             }
         });
     }
+}
+
+fn query_focused_output(sock_path: &Path) -> Option<String> {
+    let mut stream = UnixStream::connect(sock_path).ok()?;
+    let req = "{\"FocusedOutput\": null}\n";
+    stream.write_all(req.as_bytes()).ok()?;
+    stream.flush().ok()?;
+    let mut line = String::new();
+    let mut reader = BufReader::new(stream);
+    reader.read_line(&mut line).ok()?;
+    let val: Value = serde_json::from_str(&line).ok()?;
+    val.get("Ok")
+        .and_then(|ok| ok.get("FocusedOutput"))
+        .and_then(|fo| fo.get("name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string())
 }
 
 fn find_niri_socket() -> Option<PathBuf> {
