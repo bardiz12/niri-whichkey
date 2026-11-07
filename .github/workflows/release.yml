@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Strip binary
+        run: strip target/release/niri-whichkey
+
+      - name: Create release tarball
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          ARCHIVE_NAME="niri-whichkey-${TAG_NAME}-x86_64-linux.tar.gz"
+          tar -czf "${ARCHIVE_NAME}" -C target/release niri-whichkey
+          sha256sum "${ARCHIVE_NAME}" > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            niri-whichkey-*-x86_64-linux.tar.gz
+            SHA256SUMS
+          generate_release_notes: true

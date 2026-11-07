@@ -1,0 +1,16 @@
+# niri-whichkey configuration file
+# Default location: ~/.config/niri-whichkey/config.yaml
+
+# Delay in milliseconds before showing the overlay when modifier is held
+threshold_ms: 200
+
+# Margin from screen edges in pixels (anchored to top-right)
+margin_top: 24
+margin_right: 24
+
+# Typography & Layout
+font_size: 13.0
+max_columns: 2
+
+# Path to niri configuration (optional; defaults to ~/.config/niri/config.kdl or $NIRI_CONFIG)
+# niri_config_path: ~/.config/niri/config.kdl
