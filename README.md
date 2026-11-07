@@ -8,6 +8,10 @@ A blazing-fast, lightweight modifier-hint HUD overlay for the [Niri](https://git
 
 Inspired by `which-key.nvim`, `niri-whichkey` watches your modifier keys directly via `evdev` and displays an elegant HUD popup whenever `Mod` (or a combination of modifiers including `Mod`) is held down, showing you all available keybindings and sub-chords configured in your Niri setup.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="niri-whichkey demo" width="100%" />
+</p>
+
 ---
 
 ## ✨ Features
