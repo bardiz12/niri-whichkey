@@ -35,7 +35,8 @@ jobs:
           TAG_NAME="${{ github.ref_name }}"
           ARCHIVE_NAME="niri-whichkey-${TAG_NAME}-x86_64-linux.tar.gz"
           tar -czf "${ARCHIVE_NAME}" -C target/release niri-whichkey
-          sha256sum "${ARCHIVE_NAME}" > SHA256SUMS
+          cp "${ARCHIVE_NAME}" "niri-whichkey-x86_64-linux.tar.gz"
+          sha256sum niri-whichkey-*-x86_64-linux.tar.gz > SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -41,7 +41,17 @@ sudo usermod -aG input $USER
 
 ## 🚀 Installation
 
-### 1. Via Nix Flake & Home Manager (Recommended)
+### 1. Quick Install via Script (Interactive / Auto-upgrade)
+
+The fastest way to install or upgrade `niri-whichkey` on any Linux distribution:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bardiz12/niri-whichkey/main/install.sh | bash
+```
+
+> The script automatically detects latest releases, installs to `~/.local/bin`, checks your `input` group permissions, detects existing versions to offer upgrades, and configures `spawn-at-startup` in your `~/.config/niri/config.kdl`.
+
+### 2. Via Nix Flake & Home Manager
 
 Add `niri-whichkey` to your flake inputs:
 
@@ -86,17 +96,18 @@ Or run directly without installing:
 nix run github:bardiz12/niri-whichkey
 ```
 
-### 2. From GitHub Releases (Pre-built Binary)
+### 3. From GitHub Releases (Pre-built Binary)
 
 Download the latest release archive from the [Releases](https://github.com/bardiz12/niri-whichkey/releases) page:
 
 ```bash
-curl -LO https://github.com/bardiz12/niri-whichkey/releases/latest/download/niri-whichkey-x86_64-linux.tar.gz
-tar -xzf niri-whichkey-x86_64-linux.tar.gz
-sudo install -m 755 niri-whichkey /usr/local/bin/
+TAG=$(curl -s https://api.github.com/repos/bardiz12/niri-whichkey/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+curl -LO "https://github.com/bardiz12/niri-whichkey/releases/download/${TAG}/niri-whichkey-${TAG}-x86_64-linux.tar.gz"
+tar -xzf "niri-whichkey-${TAG}-x86_64-linux.tar.gz"
+install -m 755 niri-whichkey ~/.local/bin/
 ```
 
-### 3. Build from Source using Cargo
+### 4. Build from Source using Cargo
 
 ```bash
 # Install build dependencies (Arch / CachyOS)
@@ -105,6 +116,18 @@ sudo pacman -S --needed pkg-config wayland libxkbcommon
 # Install directly from repository
 cargo install --git https://github.com/bardiz12/niri-whichkey
 ```
+
+---
+
+## ⚡ Autostart with Niri
+
+To start `niri-whichkey` automatically when Niri launches, add `spawn-at-startup` to your `~/.config/niri/config.kdl`:
+
+```kdl
+spawn-at-startup "niri-whichkey"
+```
+
+If you installed via Home Manager (`programs.niri-whichkey.enable = true`), this is handled automatically for you.
 
 ---
 
